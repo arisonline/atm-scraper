@@ -185,7 +185,7 @@ async function scrapePage(page, url) {
 
   const results = [];
 
-  for (let url of urls.slice(0, 20)) {
+  for (let url of urls.slice(0, 14)) {
     console.log("Scraping:", url);
 
     const data = await scrapePage(page, url);
