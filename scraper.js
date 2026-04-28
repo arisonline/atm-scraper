@@ -60,10 +60,11 @@ async function scrapePage(page, url) {
 
     await new Promise(r => setTimeout(r, 3000));
 
-    const data = await page.evaluate(() => {
+   const data = await page.evaluate(() => {
 
-  let lat = "", lng = "", ifsc = "";
+  let lat = "", lng = "";
 
+  // 🔹 LAT LNG
   document.querySelectorAll("script").forEach(s => {
     const txt = s.innerText;
 
@@ -76,37 +77,74 @@ async function scrapePage(page, url) {
     }
   });
 
+  // 🔹 NAME
   const name = document.querySelector("h1")?.innerText.trim() || "";
 
-  const text = document.body.innerText;
+  // 🔹 CLEAN TEXT
+  const lines = document.body.innerText
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l.length > 2);
 
-  // ✅ IFSC detection
-  const ifscMatch = text.match(/\b[A-Z]{4}0[A-Z0-9]{6}\b/);
-  if (ifscMatch) {
-    ifsc = ifscMatch[0];
-  }
-
-  // ✅ PINCODE
-  const pinMatch = text.match(/\b\d{6}\b/);
-
-  // ✅ PHONE
-  const phoneMatch = text.match(/(\+91\d{10}|1800\d+)/);
-
-  // ✅ LANDMARK
+  let address = [];
+  let pincode = "";
+  let phone = "";
+  let email = "";
   let landmark = "";
-  const nearLine = text.split("\n").find(l => l.toLowerCase().includes("near"));
-  if (nearLine) landmark = nearLine.trim();
+
+  for (let line of lines) {
+
+    // 📍 PINCODE
+    const pin = line.match(/\b\d{6}\b/);
+    if (pin) {
+      pincode = pin[0];
+      address.push(line);
+      continue;
+    }
+
+    // 📞 PHONE
+    if (line.match(/\+91\d+/) || line.includes("1800")) {
+      phone = line;
+      continue;
+    }
+
+    // 📧 EMAIL
+    if (line.includes("[at]")) {
+      email = line;
+      continue;
+    }
+
+    // 📌 LANDMARK
+    if (line.toLowerCase().includes("near") || line.toLowerCase().includes("above")) {
+      landmark = line;
+      continue;
+    }
+
+    // 📍 ADDRESS (smart filter)
+    if (
+      line.toLowerCase().includes("road") ||
+      line.toLowerCase().includes("floor") ||
+      line.toLowerCase().includes("west bengal") ||
+      line.toLowerCase().includes("alipurduar") ||
+      line.toLowerCase().includes("jaygaon")
+    ) {
+      address.push(line);
+    }
+  }
 
   return {
     name,
     lat,
     lng,
-    ifsc,
-    pincode: pinMatch ? pinMatch[0] : "",
-    phone: phoneMatch ? phoneMatch[0] : "",
+    address: address.join(", "),
+    pincode,
+    phone,
+    email,
     landmark
   };
 });
+    
+    
     if (data.lat && data.lng) {
       return {
         name: data.name,
