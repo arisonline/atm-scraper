@@ -69,18 +69,18 @@ async function scrapePage(page, url) {
 
   const name = document.querySelector("h1")?.innerText.trim() || "";
 
-  // 🔥 CLEAN TEXT LINES
+  // 🔥 CLEAN LINES
   const lines = document.body.innerText
     .split("\n")
     .map(l => l.trim())
     .filter(l =>
       l.length > 2 &&
-      !l.includes("Submit a Review") &&
-      !l.includes("Read Reviews") &&
-      !l.includes("Nearby Branches") &&
-      !l.includes("PNB branches") &&
-      !l.includes("Click here") &&
-      !l.includes("Scan this QR")
+      !l.toLowerCase().includes("submit a review") &&
+      !l.toLowerCase().includes("read reviews") &&
+      !l.toLowerCase().includes("branches near") &&
+      !l.toLowerCase().includes("branches in") &&
+      !l.toLowerCase().includes("click here") &&
+      !l.toLowerCase().includes("scan this qr")
     );
 
   let address = "";
@@ -89,30 +89,52 @@ async function scrapePage(page, url) {
   let ifsc = "";
   let landmark = "";
 
-  // 🔹 PINCODE (anchor)
+  // =========================
+  // 📍 PINCODE (anchor)
+  // =========================
   let pinIndex = lines.findIndex(l => /\b\d{6}\b/.test(l));
 
   if (pinIndex !== -1) {
     const pinMatch = lines[pinIndex].match(/\b\d{6}\b/);
     pincode = pinMatch ? pinMatch[0] : "";
 
-    // 🔥 ADDRESS = 2–3 lines before pincode
-    const start = Math.max(0, pinIndex - 3);
-    address = lines.slice(start, pinIndex + 1).join(", ");
+    // 🔥 address = only valid lines
+    const raw = lines.slice(Math.max(0, pinIndex - 3), pinIndex + 1);
+
+    const clean = raw.filter(l =>
+      !l.toLowerCase().includes("punjab national bank") &&
+      !l.match(/^\d+(\.\d+)?$/) // remove "2.7"
+    );
+
+    address = clean.join(", ");
   }
 
-  // 🔹 PHONE (only real numbers)
-  const phoneMatch = document.body.innerText.match(/(\+91\d{10}|\b\d{10}\b)/);
+  // =========================
+  // 📞 PHONE (FIXED)
+  // =========================
+  const phoneMatch = document.body.innerText.match(
+    /(\+91\d{10}|91\d{10}|\b\d{10}\b)/
+  );
+
   if (phoneMatch) phone = phoneMatch[0];
 
-  // 🔹 IFSC
+  // =========================
+  // 🔢 IFSC
+  // =========================
   const ifscMatch = document.body.innerText.match(/\b[A-Z]{4}0[A-Z0-9]{6}\b/);
   if (ifscMatch) ifsc = ifscMatch[0];
 
-  // 🔹 LANDMARK (ONLY real ones)
+  // =========================
+  // 📌 LANDMARK (STRICT)
+  // =========================
   const landmarkLine = lines.find(l =>
-    l.toLowerCase().includes("near ") ||
-    l.toLowerCase().includes("above ")
+    (
+      l.toLowerCase().includes("near ") ||
+      l.toLowerCase().includes("beside ") ||
+      l.toLowerCase().includes("above ")
+    ) &&
+    !l.toLowerCase().includes("branches") &&
+    !l.toLowerCase().includes("atm")
   );
 
   if (landmarkLine) landmark = landmarkLine;
@@ -128,6 +150,8 @@ async function scrapePage(page, url) {
     landmark
   };
 });
+
+    
 
     
     if (data.lat && data.lng) {
