@@ -1,0 +1,32 @@
+name: Scrape ATM Data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *" # daily
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install deps
+        run: npm install
+
+      - name: Run scraper
+        run: node scraper.js
+
+      - name: Commit data
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@example.com"
+          git add data.json
+          git commit -m "update atm data" || echo "no changes"
+          git push
