@@ -32,26 +32,37 @@ async function scrapePage(page, url) {
     await new Promise(r => setTimeout(r, 3000));
 
     const data = await page.evaluate(() => {
-      let lat = "", lng = "";
 
-      document.querySelectorAll("script").forEach(s => {
-        const txt = s.innerText;
+  let lat = "", lng = "";
 
-        const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
-        const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+  document.querySelectorAll("script").forEach(s => {
+    const txt = s.innerText;
 
-        if (latMatch && lngMatch) {
-          lat = latMatch[1];
-          lng = lngMatch[1];
-        }
-      });
+    const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+    const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
 
-      const name = document.querySelector("h1")?.innerText || "";
+    if (latMatch && lngMatch) {
+      lat = latMatch[1];
+      lng = lngMatch[1];
+    }
+  });
 
-      const address = document.body.innerText.slice(0, 300);
+  // ✅ Clean name
+  const name = document.querySelector("h1")?.innerText.trim() || "";
 
-      return { name, lat, lng, address };
-    });
+  // ✅ Clean address (target only real section)
+  let address = "";
+
+  const labels = Array.from(document.querySelectorAll("*"));
+
+  labels.forEach(el => {
+    if (el.innerText?.includes("Address")) {
+      address = el.innerText.replace("Address", "").trim();
+    }
+  });
+
+  return { name, lat, lng, address };
+});
 
     if (data.lat && data.lng) {
       return {
