@@ -1,35 +1,24 @@
 const puppeteer = require("puppeteer");
-const axios = require("axios");
 const fs = require("fs");
 
-// 🔹 Clean text
-function clean(text) {
-  return text?.replace(/\s+/g, " ").trim() || "";
+const BASE = "https://locate.pnb.bank.in";
+
+// 🔹 Clean
+function clean(t) {
+  return t?.replace(/\s+/g, " ").trim() || "";
 }
 
-// 🔹 Step 1: Get URLs from Bing
-async function getATMUrls() {
-  let urls = [];
-
-  for (let page = 0; page < 3; page++) { // pagination
-    const searchUrl = `https://www.bing.com/search?q=site:locate.pnb.bank.in+ATM&first=${page * 10}`;
-
-    console.log("Searching:", searchUrl);
-
-    const res = await axios.get(searchUrl, {
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
-
-    const matches = res.data.match(/https:\/\/locate\.pnb\.bank\.in\/[^\"]+/g);
-
-    if (matches) urls.push(...matches);
-  }
-
-  return [...new Set(urls)];
+// 🔹 Extract ATM links from a page
+async function extractLinks(page) {
+  return await page.evaluate(() => {
+    return Array.from(document.querySelectorAll("a"))
+      .map(a => a.href)
+      .filter(h => h.includes("/atm-") && h.includes("/Map"));
+  });
 }
 
-// 🔹 Extract data from page
-async function extractData(page, url) {
+// 🔹 Extract ATM data
+async function extractATM(page) {
   return await page.evaluate(() => {
 
     let lat = "", lng = "";
@@ -46,10 +35,8 @@ async function extractData(page, url) {
       }
     });
 
-    const name = document.querySelector("h1")?.innerText || "";
-
     return {
-      name,
+      name: document.querySelector("h1")?.innerText || "",
       lat,
       lng
     };
@@ -59,17 +46,6 @@ async function extractData(page, url) {
 // 🔹 MAIN
 (async () => {
 
-  // Load old data
-  let old = [];
-  try {
-    old = JSON.parse(fs.readFileSync("atms.json"));
-  } catch {}
-
-  // 🔥 Get URLs automatically
-  const urls = await getATMUrls();
-
-  console.log("Found URLs:", urls.length);
-
   const browser = await puppeteer.launch({
     headless: "new",
     args: ["--no-sandbox"]
@@ -77,46 +53,73 @@ async function extractData(page, url) {
 
   const page = await browser.newPage();
 
+  // 🔥 START FROM ROOT PAGE
+  await page.goto(BASE, { waitUntil: "networkidle2" });
+
+  // 🔹 Step 1: collect STATE links
+  const states = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll("a"))
+      .map(a => a.href)
+      .filter(h => h.includes("/Branches-in-") || h.includes("/atm-"));
+  });
+
+  console.log("States:", states.length);
+
+  let atmUrls = [];
+
+  // 🔹 Step 2: go deeper
+  for (let stateUrl of states.slice(0, 5)) { // limit for free
+
+    console.log("Visiting:", stateUrl);
+
+    try {
+      await page.goto(stateUrl, { waitUntil: "networkidle2" });
+
+      const links = await extractLinks(page);
+      atmUrls.push(...links);
+
+    } catch {}
+
+    await new Promise(r => setTimeout(r, 3000));
+  }
+
+  // 🔥 Deduplicate URLs
+  atmUrls = [...new Set(atmUrls)];
+
+  console.log("ATM URLs:", atmUrls.length);
+
+  // 🔹 Step 3: scrape ATM pages
   const results = [];
 
-  for (let url of urls.slice(0, 20)) { // limit free usage
+  for (let url of atmUrls.slice(0, 20)) {
 
     console.log("Scraping:", url);
 
     try {
-      await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+      await page.goto(url, { waitUntil: "networkidle2" });
 
       await new Promise(r => setTimeout(r, 3000));
 
-      const raw = await extractData(page, url);
+      const data = await extractATM(page);
 
-      if (!raw.lat || !raw.lng) continue;
+      if (!data.lat || !data.lng) continue;
 
       results.push({
-        name: clean(raw.name),
-        lat: parseFloat(raw.lat),
-        lng: parseFloat(raw.lng),
+        name: clean(data.name),
+        lat: parseFloat(data.lat),
+        lng: parseFloat(data.lng),
         url
       });
 
-    } catch {
-      console.log("Failed:", url);
-    }
+    } catch {}
 
     await new Promise(r => setTimeout(r, 4000));
   }
 
   await browser.close();
 
-  // 🔥 Deduplicate by lat/lng
-  const merged = [...old, ...results].reduce((acc, cur) => {
-    const key = cur.lat + "_" + cur.lng;
-    acc[key] = cur;
-    return acc;
-  }, {});
+  fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
 
-  fs.writeFileSync("atms.json", JSON.stringify(Object.values(merged), null, 2));
-
-  console.log("Saved:", Object.keys(merged).length);
+  console.log("Saved:", results.length);
 
 })();
