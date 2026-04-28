@@ -62,39 +62,51 @@ async function scrapePage(page, url) {
 
     const data = await page.evaluate(() => {
 
-      let lat = "", lng = "";
+  let lat = "", lng = "", ifsc = "";
 
-      document.querySelectorAll("script").forEach(s => {
-        const txt = s.innerText;
+  document.querySelectorAll("script").forEach(s => {
+    const txt = s.innerText;
 
-        const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
-        const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+    const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+    const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
 
-        if (latMatch && lngMatch) {
-          lat = latMatch[1];
-          lng = lngMatch[1];
-        }
-      });
+    if (latMatch && lngMatch) {
+      lat = latMatch[1];
+      lng = lngMatch[1];
+    }
+  });
 
-      const name = document.querySelector("h1")?.innerText.trim() || "";
+  const name = document.querySelector("h1")?.innerText.trim() || "";
 
-      // simple address extraction
-      let address = "";
-      const lines = document.body.innerText.split("\n");
+  const text = document.body.innerText;
 
-      for (let line of lines) {
-        if (
-          line.toLowerCase().includes("road") ||
-          line.toLowerCase().includes("india")
-        ) {
-          address = line.trim();
-          break;
-        }
-      }
+  // ✅ IFSC detection
+  const ifscMatch = text.match(/\b[A-Z]{4}0[A-Z0-9]{6}\b/);
+  if (ifscMatch) {
+    ifsc = ifscMatch[0];
+  }
 
-      return { name, lat, lng, address };
-    });
+  // ✅ PINCODE
+  const pinMatch = text.match(/\b\d{6}\b/);
 
+  // ✅ PHONE
+  const phoneMatch = text.match(/(\+91\d{10}|1800\d+)/);
+
+  // ✅ LANDMARK
+  let landmark = "";
+  const nearLine = text.split("\n").find(l => l.toLowerCase().includes("near"));
+  if (nearLine) landmark = nearLine.trim();
+
+  return {
+    name,
+    lat,
+    lng,
+    ifsc,
+    pincode: pinMatch ? pinMatch[0] : "",
+    phone: phoneMatch ? phoneMatch[0] : "",
+    landmark
+  };
+});
     if (data.lat && data.lng) {
       return {
         name: data.name,
