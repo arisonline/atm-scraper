@@ -112,39 +112,40 @@ async function scrapePage(page, url) {
       
 
 // =========================
-// 📞 PHONE (FINAL FIX)
+// 📞 PHONE (ULTIMATE FIX)
 // =========================
 
-// 1️⃣ Priority: Branch Head line (most accurate)
-const branchLine = lines.find(l =>
-  l.toLowerCase().includes("branch head")
+
+
+// 🔹 FULL PAGE TEXT (stronger than innerText)
+const fullText = document.body.innerText + " " + document.body.textContent;
+
+// 1️⃣ Priority: Branch Head pattern
+const branchMatch = fullText.match(
+  /branch head[^+0-9]*([+]91\d{10}|91\d{10}|\b\d{10}\b)/i
 );
 
-if (branchLine) {
-  const match = branchLine.match(/(\+91\d{10}|91\d{10}|\b\d{10}\b)/);
-  if (match && !match[0].startsWith("1800")) {
-    phone = match[0];
-  }
+if (branchMatch) {
+  phone = branchMatch[1];
 }
 
-// 2️⃣ Fallback: scan all lines
+// 2️⃣ Fallback: any Indian number
 if (!phone) {
-  for (let line of lines) {
+  const anyMatch = fullText.match(/([+]91\d{10}|91\d{10}|\b\d{10}\b)/);
 
-    const match = line.match(/(\+91\d{10}|91\d{10}|\b\d{10}\b)/);
+  if (anyMatch) {
+    const num = anyMatch[1];
 
-    if (match) {
-      const num = match[0];
-
-      // ❌ skip toll-free
-      if (num.startsWith("1800")) continue;
-
+    if (!num.startsWith("1800")) {
       phone = num;
-      break;
     }
   }
 }
 
+// 3️⃣ Normalize
+if (phone.startsWith("91") && !phone.startsWith("+91")) {
+  phone = "+" + phone;
+}
       
 
   // =========================
