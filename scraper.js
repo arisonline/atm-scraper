@@ -115,8 +115,6 @@ async function scrapePage(page, url) {
 // 📞 PHONE (FINAL FIX)
 // =========================
 
-let phone = "";
-
 // 1️⃣ Priority: Branch Head line (most accurate)
 const branchLine = lines.find(l =>
   l.toLowerCase().includes("branch head")
