@@ -109,14 +109,45 @@ async function scrapePage(page, url) {
     address = clean.join(", ");
   }
 
-  // =========================
-  // 📞 PHONE (FIXED)
-  // =========================
-  const phoneMatch = document.body.innerText.match(
-    /(\+91\d{10}|91\d{10}|\b\d{10}\b)/
-  );
+      
 
-  if (phoneMatch) phone = phoneMatch[0];
+// =========================
+// 📞 PHONE (FINAL FIX)
+// =========================
+
+let phone = "";
+
+// 1️⃣ Priority: Branch Head line (most accurate)
+const branchLine = lines.find(l =>
+  l.toLowerCase().includes("branch head")
+);
+
+if (branchLine) {
+  const match = branchLine.match(/(\+91\d{10}|91\d{10}|\b\d{10}\b)/);
+  if (match && !match[0].startsWith("1800")) {
+    phone = match[0];
+  }
+}
+
+// 2️⃣ Fallback: scan all lines
+if (!phone) {
+  for (let line of lines) {
+
+    const match = line.match(/(\+91\d{10}|91\d{10}|\b\d{10}\b)/);
+
+    if (match) {
+      const num = match[0];
+
+      // ❌ skip toll-free
+      if (num.startsWith("1800")) continue;
+
+      phone = num;
+      break;
+    }
+  }
+}
+
+      
 
   // =========================
   // 🔢 IFSC
