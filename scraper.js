@@ -1,20 +1,49 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 const axios = require("axios");
+const zlib = require("zlib");
 
-// 🔹 Load URLs
-let urls = [];
-try {
-  urls = JSON.parse(fs.readFileSync("urls.json"));
-} catch {}
+// 🔹 STEP 1: Get sitemap links
+async function getSitemapLinks() {
+  const sitemap = "https://locate.pnb.bank.in/sitemap.xml";
 
-// 🔹 Load old ATM data
-let atms = [];
-try {
-  atms = JSON.parse(fs.readFileSync("atms.json"));
-} catch {}
+  const res = await axios.get(sitemap);
+  const matches = res.data.match(/https:[^<]+\.xml\.gz/g);
 
-// 🔹 Deduplicate helper
+  return matches.slice(0, 3); // limit for testing
+}
+
+// 🔹 STEP 2: Extract ATM URLs
+async function getATMUrlsFromGZ(url) {
+  const res = await axios.get(url, { responseType: "arraybuffer" });
+
+  const xml = zlib.gunzipSync(res.data).toString("utf-8");
+
+  const matches = xml.match(/https:[^<]+/g) || [];
+
+  return matches.filter(u =>
+    u.includes("-atm-") && u.endsWith("/Home")
+  );
+}
+
+// 🔹 STEP 3: Collect all ATM URLs
+async function collectAllATMUrls() {
+  const sitemapLinks = await getSitemapLinks();
+
+  let all = [];
+
+  for (let link of sitemapLinks) {
+    console.log("Reading:", link);
+
+    const urls = await getATMUrlsFromGZ(link);
+
+    all.push(...urls);
+  }
+
+  return [...new Set(all)];
+}
+
+// 🔹 Deduplicate ATM data
 function uniqueByLatLng(data) {
   const map = new Map();
   data.forEach(d => {
@@ -24,7 +53,7 @@ function uniqueByLatLng(data) {
   return [...map.values()];
 }
 
-// 🔹 Scrape single page
+// 🔹 Scrape ATM page
 async function scrapePage(page, url) {
   try {
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
@@ -33,36 +62,38 @@ async function scrapePage(page, url) {
 
     const data = await page.evaluate(() => {
 
-  let lat = "", lng = "";
+      let lat = "", lng = "";
 
-  document.querySelectorAll("script").forEach(s => {
-    const txt = s.innerText;
+      document.querySelectorAll("script").forEach(s => {
+        const txt = s.innerText;
 
-    const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
-    const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+        const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+        const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
 
-    if (latMatch && lngMatch) {
-      lat = latMatch[1];
-      lng = lngMatch[1];
-    }
-  });
+        if (latMatch && lngMatch) {
+          lat = latMatch[1];
+          lng = lngMatch[1];
+        }
+      });
 
-  // ✅ Clean name
-  const name = document.querySelector("h1")?.innerText.trim() || "";
+      const name = document.querySelector("h1")?.innerText.trim() || "";
 
-  // ✅ Clean address (target only real section)
-  let address = "";
+      // simple address extraction
+      let address = "";
+      const lines = document.body.innerText.split("\n");
 
-  const labels = Array.from(document.querySelectorAll("*"));
+      for (let line of lines) {
+        if (
+          line.toLowerCase().includes("road") ||
+          line.toLowerCase().includes("india")
+        ) {
+          address = line.trim();
+          break;
+        }
+      }
 
-  labels.forEach(el => {
-    if (el.innerText?.includes("Address")) {
-      address = el.innerText.replace("Address", "").trim();
-    }
-  });
-
-  return { name, lat, lng, address };
-});
+      return { name, lat, lng, address };
+    });
 
     if (data.lat && data.lng) {
       return {
@@ -84,6 +115,12 @@ async function scrapePage(page, url) {
 // 🔹 MAIN
 (async () => {
 
+  console.log("🔄 Collecting URLs...");
+
+  const urls = await collectAllATMUrls();
+
+  console.log("Total URLs:", urls.length);
+
   const browser = await puppeteer.launch({
     headless: "new",
     args: ["--no-sandbox"]
@@ -91,24 +128,29 @@ async function scrapePage(page, url) {
 
   const page = await browser.newPage();
 
+  let oldData = [];
+  try {
+    oldData = JSON.parse(fs.readFileSync("atms.json"));
+  } catch {}
+
   const results = [];
 
-  for (let url of urls.slice(0, 20)) { // limit for free run
+  for (let url of urls.slice(0, 20)) {
     console.log("Scraping:", url);
 
     const data = await scrapePage(page, url);
 
     if (data) results.push(data);
 
-    await new Promise(r => setTimeout(r, 4000)); // avoid block
+    await new Promise(r => setTimeout(r, 4000));
   }
 
   await browser.close();
 
-  const merged = uniqueByLatLng([...atms, ...results]);
+  const merged = uniqueByLatLng([...oldData, ...results]);
 
   fs.writeFileSync("atms.json", JSON.stringify(merged, null, 2));
 
-  console.log("Saved:", merged.length);
+  console.log("✅ Saved:", merged.length);
 
 })();
