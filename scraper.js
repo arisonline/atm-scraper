@@ -1,37 +1,21 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
-const axios = require("axios");
 
-// 🔹 Load URLs
-let urls = [];
-try {
-  urls = JSON.parse(fs.readFileSync("urls.json"));
-} catch {}
-
-// 🔹 Load old ATM data
-let atms = [];
-try {
-  atms = JSON.parse(fs.readFileSync("atms.json"));
-} catch {}
-
-// 🔹 Deduplicate helper
-function uniqueByLatLng(data) {
-  const map = new Map();
-  data.forEach(d => {
-    const key = `${d.lat}_${d.lng}`;
-    map.set(key, d);
-  });
-  return [...map.values()];
+// 🔹 Clean text
+function clean(text) {
+  return text?.replace(/\s+/g, " ").trim() || "";
 }
 
-// 🔹 Scrape single page
-async function scrapePage(page, url) {
-  try {
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+// 🔹 Extract ATM data properly
+async function extractData(page, url) {
 
-    await new Promise(r => setTimeout(r, 3000));
+  return await page.evaluate(() => {
 
-    const data = await page.evaluate(() => {
+    function getText(selector) {
+      return document.querySelector(selector)?.innerText || "";
+    }
+
+    function findLatLng() {
       let lat = "", lng = "";
 
       document.querySelectorAll("script").forEach(s => {
@@ -46,28 +30,18 @@ async function scrapePage(page, url) {
         }
       });
 
-      const name = document.querySelector("h1")?.innerText || "";
-
-      const address = document.body.innerText.slice(0, 300);
-
-      return { name, lat, lng, address };
-    });
-
-    if (data.lat && data.lng) {
-      return {
-        name: data.name,
-        lat: parseFloat(data.lat),
-        lng: parseFloat(data.lng),
-        address: data.address,
-        url
-      };
+      return { lat, lng };
     }
 
-  } catch (e) {
-    console.log("Error:", url);
-  }
+    const { lat, lng } = findLatLng();
 
-  return null;
+    return {
+      name: getText("h1"),
+      address: getText("body"), // full raw (we clean outside)
+      lat,
+      lng
+    };
+  });
 }
 
 // 🔹 MAIN
@@ -80,24 +54,80 @@ async function scrapePage(page, url) {
 
   const page = await browser.newPage();
 
+  const base = "https://locate.pnb.bank.in";
+
+  // 🔥 AUTO URL DISCOVERY (pagination simulation)
+  let urls = [];
+
+  for (let i = 1; i <= 3; i++) {   // increase later
+    const searchUrl = `${base}/?page=${i}`;
+
+    console.log("Scanning:", searchUrl);
+
+    try {
+      await page.goto(searchUrl, { waitUntil: "networkidle2" });
+
+      const found = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll("a"))
+          .map(a => a.href)
+          .filter(h => h.includes("/atm-") && h.includes("/Map"));
+      });
+
+      urls.push(...found);
+
+    } catch {}
+  }
+
+  // 🔥 Remove duplicates
+  urls = [...new Set(urls)];
+
+  console.log("Total URLs:", urls.length);
+
+  // 🔹 Load old data
+  let old = [];
+  try {
+    old = JSON.parse(fs.readFileSync("atms.json"));
+  } catch {}
+
   const results = [];
 
   for (let url of urls.slice(0, 20)) { // limit for free run
+
     console.log("Scraping:", url);
 
-    const data = await scrapePage(page, url);
+    try {
+      await page.goto(url, { waitUntil: "networkidle2" });
 
-    if (data) results.push(data);
+      await new Promise(r => setTimeout(r, 3000));
 
-    await new Promise(r => setTimeout(r, 4000)); // avoid block
+      const raw = await extractData(page, url);
+
+      if (!raw.lat || !raw.lng) continue;
+
+      results.push({
+        name: clean(raw.name),
+        lat: parseFloat(raw.lat),
+        lng: parseFloat(raw.lng),
+        address: clean(raw.address).slice(0, 200),
+        url
+      });
+
+    } catch {}
+
+    await new Promise(r => setTimeout(r, 4000));
   }
 
   await browser.close();
 
-  const merged = uniqueByLatLng([...atms, ...results]);
+  // 🔥 Merge + deduplicate
+  const final = [...old, ...results].reduce((acc, cur) => {
+    const key = cur.lat + "_" + cur.lng;
+    acc[key] = cur;
+    return acc;
+  }, {});
 
-  fs.writeFileSync("atms.json", JSON.stringify(merged, null, 2));
+  fs.writeFileSync("atms.json", JSON.stringify(Object.values(final), null, 2));
 
-  console.log("Saved:", merged.length);
+  console.log("Saved:", Object.keys(final).length);
 
 })();
