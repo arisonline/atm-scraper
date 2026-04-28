@@ -1,4 +1,5 @@
 const puppeteer = require("puppeteer");
+const axios = require("axios");
 const fs = require("fs");
 
 // 🔹 Clean text
@@ -6,38 +7,49 @@ function clean(text) {
   return text?.replace(/\s+/g, " ").trim() || "";
 }
 
-// 🔹 Extract ATM data properly
-async function extractData(page, url) {
+// 🔹 Step 1: Get URLs from Bing
+async function getATMUrls() {
+  let urls = [];
 
+  for (let page = 0; page < 3; page++) { // pagination
+    const searchUrl = `https://www.bing.com/search?q=site:locate.pnb.bank.in+ATM&first=${page * 10}`;
+
+    console.log("Searching:", searchUrl);
+
+    const res = await axios.get(searchUrl, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+
+    const matches = res.data.match(/https:\/\/locate\.pnb\.bank\.in\/[^\"]+/g);
+
+    if (matches) urls.push(...matches);
+  }
+
+  return [...new Set(urls)];
+}
+
+// 🔹 Extract data from page
+async function extractData(page, url) {
   return await page.evaluate(() => {
 
-    function getText(selector) {
-      return document.querySelector(selector)?.innerText || "";
-    }
+    let lat = "", lng = "";
 
-    function findLatLng() {
-      let lat = "", lng = "";
+    document.querySelectorAll("script").forEach(s => {
+      const txt = s.innerText;
 
-      document.querySelectorAll("script").forEach(s => {
-        const txt = s.innerText;
+      const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+      const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
 
-        const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
-        const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+      if (latMatch && lngMatch) {
+        lat = latMatch[1];
+        lng = lngMatch[1];
+      }
+    });
 
-        if (latMatch && lngMatch) {
-          lat = latMatch[1];
-          lng = lngMatch[1];
-        }
-      });
-
-      return { lat, lng };
-    }
-
-    const { lat, lng } = findLatLng();
+    const name = document.querySelector("h1")?.innerText || "";
 
     return {
-      name: getText("h1"),
-      address: getText("body"), // full raw (we clean outside)
+      name,
       lat,
       lng
     };
@@ -47,6 +59,17 @@ async function extractData(page, url) {
 // 🔹 MAIN
 (async () => {
 
+  // Load old data
+  let old = [];
+  try {
+    old = JSON.parse(fs.readFileSync("atms.json"));
+  } catch {}
+
+  // 🔥 Get URLs automatically
+  const urls = await getATMUrls();
+
+  console.log("Found URLs:", urls.length);
+
   const browser = await puppeteer.launch({
     headless: "new",
     args: ["--no-sandbox"]
@@ -54,49 +77,14 @@ async function extractData(page, url) {
 
   const page = await browser.newPage();
 
-  const base = "https://locate.pnb.bank.in";
-
-  // 🔥 AUTO URL DISCOVERY (pagination simulation)
-  let urls = [];
-
-  for (let i = 1; i <= 3; i++) {   // increase later
-    const searchUrl = `${base}/?page=${i}`;
-
-    console.log("Scanning:", searchUrl);
-
-    try {
-      await page.goto(searchUrl, { waitUntil: "networkidle2" });
-
-      const found = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll("a"))
-          .map(a => a.href)
-          .filter(h => h.includes("/atm-") && h.includes("/Map"));
-      });
-
-      urls.push(...found);
-
-    } catch {}
-  }
-
-  // 🔥 Remove duplicates
-  urls = [...new Set(urls)];
-
-  console.log("Total URLs:", urls.length);
-
-  // 🔹 Load old data
-  let old = [];
-  try {
-    old = JSON.parse(fs.readFileSync("atms.json"));
-  } catch {}
-
   const results = [];
 
-  for (let url of urls.slice(0, 20)) { // limit for free run
+  for (let url of urls.slice(0, 20)) { // limit free usage
 
     console.log("Scraping:", url);
 
     try {
-      await page.goto(url, { waitUntil: "networkidle2" });
+      await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
       await new Promise(r => setTimeout(r, 3000));
 
@@ -108,26 +96,27 @@ async function extractData(page, url) {
         name: clean(raw.name),
         lat: parseFloat(raw.lat),
         lng: parseFloat(raw.lng),
-        address: clean(raw.address).slice(0, 200),
         url
       });
 
-    } catch {}
+    } catch {
+      console.log("Failed:", url);
+    }
 
     await new Promise(r => setTimeout(r, 4000));
   }
 
   await browser.close();
 
-  // 🔥 Merge + deduplicate
-  const final = [...old, ...results].reduce((acc, cur) => {
+  // 🔥 Deduplicate by lat/lng
+  const merged = [...old, ...results].reduce((acc, cur) => {
     const key = cur.lat + "_" + cur.lng;
     acc[key] = cur;
     return acc;
   }, {});
 
-  fs.writeFileSync("atms.json", JSON.stringify(Object.values(final), null, 2));
+  fs.writeFileSync("atms.json", JSON.stringify(Object.values(merged), null, 2));
 
-  console.log("Saved:", Object.keys(final).length);
+  console.log("Saved:", Object.keys(merged).length);
 
 })();
