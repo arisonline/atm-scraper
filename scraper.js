@@ -3,174 +3,152 @@ const fs = require("fs");
 const axios = require("axios");
 const zlib = require("zlib");
 
-// 🔹 STEP 1: Get sitemap links
+// ===============================
+// STEP 1: Load sitemap
+// ===============================
 async function getSitemapLinks() {
-  const sitemap = "https://locate.pnb.bank.in/sitemap.xml";
-
-  const res = await axios.get(sitemap);
-  const matches = res.data.match(/https:[^<]+\.xml\.gz/g);
-
-  return matches.slice(0, 3); // limit for testing
+  const res = await axios.get("https://locate.pnb.bank.in/sitemap.xml");
+  return (res.data.match(/https:[^<]+\.xml\.gz/g) || []).slice(0, 3);
 }
 
-// 🔹 STEP 2: Extract ATM URLs
+// ===============================
+// STEP 2: Extract URLs
+// ===============================
 async function getATMUrlsFromGZ(url) {
   const res = await axios.get(url, { responseType: "arraybuffer" });
-
   const xml = zlib.gunzipSync(res.data).toString("utf-8");
 
-  const matches = xml.match(/https:[^<]+/g) || [];
+  const urls = xml.match(/https:[^<]+/g) || [];
 
-  return matches.filter(u =>
-    u.includes("-atm-") && u.endsWith("/Home")
+  return urls.filter(u =>
+    u.includes("punjab-national-bank") &&
+    u.endsWith("/Home")
   );
 }
 
-// 🔹 STEP 3: Collect all ATM URLs
+// ===============================
+// STEP 3: Collect all URLs
+// ===============================
 async function collectAllATMUrls() {
-  const sitemapLinks = await getSitemapLinks();
+  const maps = await getSitemapLinks();
 
   let all = [];
-
-  for (let link of sitemapLinks) {
-    console.log("Reading:", link);
-
-    const urls = await getATMUrlsFromGZ(link);
-
+  for (let m of maps) {
+    const urls = await getATMUrlsFromGZ(m);
     all.push(...urls);
   }
 
   return [...new Set(all)];
 }
 
-// 🔹 Deduplicate ATM data
-function uniqueByLatLng(data) {
-  const map = new Map();
-  data.forEach(d => {
-    const key = `${d.lat}_${d.lng}`;
-    map.set(key, d);
-  });
-  return [...map.values()];
-}
-
-// 🔹 Scrape ATM page
+// ===============================
+// STEP 4: Scraper
+// ===============================
 async function scrapePage(page, url) {
   try {
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 2500));
 
-   const data = await page.evaluate(() => {
+    const data = await page.evaluate(() => {
 
-  let lat = "", lng = "";
+      let lat = "", lng = "";
 
-  // 🔹 LAT LNG
-  document.querySelectorAll("script").forEach(s => {
-    const txt = s.innerText;
+      // 🔹 lat lng
+      document.querySelectorAll("script").forEach(s => {
+        const txt = s.innerText;
+        const latMatch = txt.match(/latitude.*?([0-9.\-]+)/i);
+        const lngMatch = txt.match(/longitude.*?([0-9.\-]+)/i);
 
-    const latMatch = txt.match(/latitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
-    const lngMatch = txt.match(/longitude["']?\s*[:=]\s*["']?([0-9.\-]+)/i);
+        if (latMatch && lngMatch) {
+          lat = latMatch[1];
+          lng = lngMatch[1];
+        }
+      });
 
-    if (latMatch && lngMatch) {
-      lat = latMatch[1];
-      lng = lngMatch[1];
-    }
-  });
+      const name = document.querySelector("h1")?.innerText.trim() || "";
 
-  const name = document.querySelector("h1")?.innerText.trim() || "";
+      const lines = document.body.innerText
+        .split("\n")
+        .map(l => l.trim())
+        .filter(l => l.length > 2);
 
-  const lines = document.body.innerText
-    .split("\n")
-    .map(l => l.trim())
-    .filter(l => l.length > 2);
+      let address = "";
+      let pincode = "";
+      let phone = "";
+      let ifsc = "";
+      let landmark = "";
 
-  let addressLines = [];
-  let pincode = "";
-  let phone = "";
-  let landmark = "";
+      // 🔥 find pincode index
+      let pinIndex = -1;
 
-  let started = false;
+      for (let i = 0; i < lines.length; i++) {
+        const pin = lines[i].match(/\b\d{6}\b/);
+        if (pin) {
+          pincode = pin[0];
+          pinIndex = i;
+          break;
+        }
+      }
 
-  for (let line of lines) {
+      // 🔥 build address (3–4 lines before pincode)
+      if (pinIndex !== -1) {
+        const start = Math.max(0, pinIndex - 3);
+        address = lines.slice(start, pinIndex + 1).join(", ");
+      }
 
-    // ❌ STOP when "Nearby / Branch list starts"
-    if (
-      line.toLowerCase().includes("pnb branches") ||
-      line.toLowerCase().includes("branches in") ||
-      line.toLowerCase().includes("other branches")
-    ) {
-      break;
-    }
+      // 🔹 phone
+      const phoneMatch = document.body.innerText.match(/(\+91\d{10}|1800\d+)/);
+      if (phoneMatch) phone = phoneMatch[0];
 
-    // 📍 START address block
-    if (
-      line.toLowerCase().includes("floor") ||
-      line.toLowerCase().includes("road")
-    ) {
-      started = true;
-    }
+      // 🔹 IFSC
+      const ifscMatch = document.body.innerText.match(/\b[A-Z]{4}0[A-Z0-9]{6}\b/);
+      if (ifscMatch) ifsc = ifscMatch[0];
 
-    if (!started) continue;
+      // 🔹 landmark
+      const nearLine = lines.find(l =>
+        l.toLowerCase().includes("near") ||
+        l.toLowerCase().includes("above")
+      );
+      if (nearLine) landmark = nearLine;
 
-    // 📍 PINCODE → stop after found (end of address)
-    const pin = line.match(/\b\d{6}\b/);
-    if (pin) {
-      pincode = pin[0];
-      addressLines.push(line);
-      break; // ✅ STOP HERE (IMPORTANT)
-    }
+      return {
+        name,
+        lat,
+        lng,
+        address,
+        pincode,
+        phone,
+        ifsc,
+        landmark
+      };
+    });
 
-    // 📞 PHONE
-    if (line.match(/\+91\d+/) || line.includes("1800")) {
-      phone = line;
-    }
-
-    // 📌 LANDMARK
-    if (line.toLowerCase().includes("near") || line.toLowerCase().includes("above")) {
-      landmark = line;
-    }
-
-    addressLines.push(line);
-  }
-
-  return {
-    name,
-    lat,
-    lng,
-    address: addressLines.join(", "),
-    pincode,
-    phone,
-    landmark
-  };
-});
-    
-    
-    
     if (data.lat && data.lng) {
       return {
-        name: data.name,
+        ...data,
         lat: parseFloat(data.lat),
         lng: parseFloat(data.lng),
-        address: data.address,
         url
       };
     }
 
   } catch (e) {
-    console.log("Error:", url);
+    console.log("❌ Error:", url);
   }
 
   return null;
 }
 
-// 🔹 MAIN
+// ===============================
+// STEP 5: MAIN
+// ===============================
 (async () => {
 
   console.log("🔄 Collecting URLs...");
-
   const urls = await collectAllATMUrls();
 
-  console.log("Total URLs:", urls.length);
+  console.log("Total:", urls.length);
 
   const browser = await puppeteer.launch({
     headless: "new",
@@ -179,29 +157,22 @@ async function scrapePage(page, url) {
 
   const page = await browser.newPage();
 
-  let oldData = [];
-  try {
-    oldData = JSON.parse(fs.readFileSync("atms.json"));
-  } catch {}
+  let results = [];
 
-  const results = [];
-
-  for (let url of urls.slice(0, 14)) {
+  for (let url of urls.slice(0, 20)) {
     console.log("Scraping:", url);
 
     const data = await scrapePage(page, url);
 
     if (data) results.push(data);
 
-    await new Promise(r => setTimeout(r, 4000));
+    await new Promise(r => setTimeout(r, 3000));
   }
 
   await browser.close();
 
-  const merged = uniqueByLatLng([...oldData, ...results]);
+  fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
 
-  fs.writeFileSync("atms.json", JSON.stringify(merged, null, 2));
-
-  console.log("✅ Saved:", merged.length);
+  console.log("✅ Done:", results.length);
 
 })();
