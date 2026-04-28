@@ -1,35 +1,32 @@
-name: Scrape ATM Data
+name: ATM Scraper
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 2 * * *"
 
 permissions:
-  contents: write   # 🔥 IMPORTANT FIX
+  contents: write
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4   # 🔥 upgrade
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4   # 🔥 upgrade
+      - uses: actions/setup-node@v4
         with:
           node-version: "18"
 
-      - name: Install deps
-        run: npm install
+      - run: npm install
 
-      - name: Run scraper
-        run: node scraper.js
+      - run: node scraper.js
 
-      - name: Commit & Push
+      - name: Commit & push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add data.json
+          git add atms.json
           git commit -m "update atm data" || echo "no changes"
           git push
