@@ -1,24 +1,36 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 
-const BASE = "https://locate.pnb.bank.in";
+async function getATMUrls(page) {
 
-// 🔹 Clean
-function clean(t) {
-  return t?.replace(/\s+/g, " ").trim() || "";
-}
+  console.log("🔍 Searching Google...");
 
-// 🔹 Extract ATM links from a page
-async function extractLinks(page) {
-  return await page.evaluate(() => {
+  await page.goto(
+    "https://www.google.com/search?q=site:locate.pnb.bank.in ATM Map",
+    { waitUntil: "networkidle2" }
+  );
+
+  await new Promise(r => setTimeout(r, 3000));
+
+  const links = await page.evaluate(() => {
     return Array.from(document.querySelectorAll("a"))
       .map(a => a.href)
-      .filter(h => h.includes("/atm-") && h.includes("/Map"));
+      .filter(h =>
+        h.includes("locate.pnb.bank.in") &&
+        h.includes("/atm-") &&
+        h.includes("/Map")
+      );
   });
+
+  return [...new Set(links)];
 }
 
 // 🔹 Extract ATM data
-async function extractATM(page) {
+async function extract(page, url) {
+
+  await page.goto(url, { waitUntil: "networkidle2" });
+  await new Promise(r => setTimeout(r, 3000));
+
   return await page.evaluate(() => {
 
     let lat = "", lng = "";
@@ -35,15 +47,16 @@ async function extractATM(page) {
       }
     });
 
+    const name = document.querySelector("h1")?.innerText || "";
+
     return {
-      name: document.querySelector("h1")?.innerText || "",
+      name,
       lat,
       lng
     };
   });
 }
 
-// 🔹 MAIN
 (async () => {
 
   const browser = await puppeteer.launch({
@@ -53,63 +66,27 @@ async function extractATM(page) {
 
   const page = await browser.newPage();
 
-  // 🔥 START FROM ROOT PAGE
-  await page.goto(BASE, { waitUntil: "networkidle2" });
+  // 🔥 STEP 1: Get URLs automatically
+  const urls = await getATMUrls(page);
 
-  // 🔹 Step 1: collect STATE links
-  const states = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll("a"))
-      .map(a => a.href)
-      .filter(h => h.includes("/Branches-in-") || h.includes("/atm-"));
-  });
+  console.log("Found URLs:", urls.length);
 
-  console.log("States:", states.length);
+  let results = [];
 
-  let atmUrls = [];
-
-  // 🔹 Step 2: go deeper
-  for (let stateUrl of states.slice(0, 5)) { // limit for free
-
-    console.log("Visiting:", stateUrl);
-
-    try {
-      await page.goto(stateUrl, { waitUntil: "networkidle2" });
-
-      const links = await extractLinks(page);
-      atmUrls.push(...links);
-
-    } catch {}
-
-    await new Promise(r => setTimeout(r, 3000));
-  }
-
-  // 🔥 Deduplicate URLs
-  atmUrls = [...new Set(atmUrls)];
-
-  console.log("ATM URLs:", atmUrls.length);
-
-  // 🔹 Step 3: scrape ATM pages
-  const results = [];
-
-  for (let url of atmUrls.slice(0, 20)) {
-
+  for (let url of urls.slice(0, 10)) { // limit first
     console.log("Scraping:", url);
 
     try {
-      await page.goto(url, { waitUntil: "networkidle2" });
+      const data = await extract(page, url);
 
-      await new Promise(r => setTimeout(r, 3000));
-
-      const data = await extractATM(page);
-
-      if (!data.lat || !data.lng) continue;
-
-      results.push({
-        name: clean(data.name),
-        lat: parseFloat(data.lat),
-        lng: parseFloat(data.lng),
-        url
-      });
+      if (data.lat && data.lng) {
+        results.push({
+          name: data.name,
+          lat: parseFloat(data.lat),
+          lng: parseFloat(data.lng),
+          url
+        });
+      }
 
     } catch {}
 
