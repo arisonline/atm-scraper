@@ -52,78 +52,84 @@ async function scrapePage(page, url) {
 
     const data = await page.evaluate(() => {
 
-      let lat = "", lng = "";
+  let lat = "", lng = "";
 
-      // 🔹 lat lng
-      document.querySelectorAll("script").forEach(s => {
-        const txt = s.innerText;
-        const latMatch = txt.match(/latitude.*?([0-9.\-]+)/i);
-        const lngMatch = txt.match(/longitude.*?([0-9.\-]+)/i);
+  // 🔹 LAT LNG
+  document.querySelectorAll("script").forEach(s => {
+    const txt = s.innerText;
 
-        if (latMatch && lngMatch) {
-          lat = latMatch[1];
-          lng = lngMatch[1];
-        }
-      });
+    const latMatch = txt.match(/latitude.*?([0-9.\-]+)/i);
+    const lngMatch = txt.match(/longitude.*?([0-9.\-]+)/i);
 
-      const name = document.querySelector("h1")?.innerText.trim() || "";
+    if (latMatch && lngMatch) {
+      lat = latMatch[1];
+      lng = lngMatch[1];
+    }
+  });
 
-      const lines = document.body.innerText
-        .split("\n")
-        .map(l => l.trim())
-        .filter(l => l.length > 2);
+  const name = document.querySelector("h1")?.innerText.trim() || "";
 
-      let address = "";
-      let pincode = "";
-      let phone = "";
-      let ifsc = "";
-      let landmark = "";
+  // 🔥 CLEAN TEXT LINES
+  const lines = document.body.innerText
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l =>
+      l.length > 2 &&
+      !l.includes("Submit a Review") &&
+      !l.includes("Read Reviews") &&
+      !l.includes("Nearby Branches") &&
+      !l.includes("PNB branches") &&
+      !l.includes("Click here") &&
+      !l.includes("Scan this QR")
+    );
 
-      // 🔥 find pincode index
-      let pinIndex = -1;
+  let address = "";
+  let pincode = "";
+  let phone = "";
+  let ifsc = "";
+  let landmark = "";
 
-      for (let i = 0; i < lines.length; i++) {
-        const pin = lines[i].match(/\b\d{6}\b/);
-        if (pin) {
-          pincode = pin[0];
-          pinIndex = i;
-          break;
-        }
-      }
+  // 🔹 PINCODE (anchor)
+  let pinIndex = lines.findIndex(l => /\b\d{6}\b/.test(l));
 
-      // 🔥 build address (3–4 lines before pincode)
-      if (pinIndex !== -1) {
-        const start = Math.max(0, pinIndex - 3);
-        address = lines.slice(start, pinIndex + 1).join(", ");
-      }
+  if (pinIndex !== -1) {
+    const pinMatch = lines[pinIndex].match(/\b\d{6}\b/);
+    pincode = pinMatch ? pinMatch[0] : "";
 
-      // 🔹 phone
-      const phoneMatch = document.body.innerText.match(/(\+91\d{10}|1800\d+)/);
-      if (phoneMatch) phone = phoneMatch[0];
+    // 🔥 ADDRESS = 2–3 lines before pincode
+    const start = Math.max(0, pinIndex - 3);
+    address = lines.slice(start, pinIndex + 1).join(", ");
+  }
 
-      // 🔹 IFSC
-      const ifscMatch = document.body.innerText.match(/\b[A-Z]{4}0[A-Z0-9]{6}\b/);
-      if (ifscMatch) ifsc = ifscMatch[0];
+  // 🔹 PHONE (only real numbers)
+  const phoneMatch = document.body.innerText.match(/(\+91\d{10}|\b\d{10}\b)/);
+  if (phoneMatch) phone = phoneMatch[0];
 
-      // 🔹 landmark
-      const nearLine = lines.find(l =>
-        l.toLowerCase().includes("near") ||
-        l.toLowerCase().includes("above")
-      );
-      if (nearLine) landmark = nearLine;
+  // 🔹 IFSC
+  const ifscMatch = document.body.innerText.match(/\b[A-Z]{4}0[A-Z0-9]{6}\b/);
+  if (ifscMatch) ifsc = ifscMatch[0];
 
-      return {
-        name,
-        lat,
-        lng,
-        address,
-        pincode,
-        phone,
-        ifsc,
-        landmark
-      };
-    });
+  // 🔹 LANDMARK (ONLY real ones)
+  const landmarkLine = lines.find(l =>
+    l.toLowerCase().includes("near ") ||
+    l.toLowerCase().includes("above ")
+  );
 
+  if (landmarkLine) landmark = landmarkLine;
+
+  return {
+    name,
+    lat,
+    lng,
+    address,
+    pincode,
+    phone,
+    ifsc,
+    landmark
+  };
+});
+
+    
     if (data.lat && data.lng) {
       return {
         ...data,
@@ -159,7 +165,7 @@ async function scrapePage(page, url) {
 
   let results = [];
 
-  for (let url of urls.slice(0, 20)) {
+  for (let url of urls.slice(0, 10)) {
     console.log("Scraping:", url);
 
     const data = await scrapePage(page, url);
