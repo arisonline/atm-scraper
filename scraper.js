@@ -77,72 +77,73 @@ async function scrapePage(page, url) {
     }
   });
 
-  // 🔹 NAME
   const name = document.querySelector("h1")?.innerText.trim() || "";
 
-  // 🔹 CLEAN TEXT
   const lines = document.body.innerText
     .split("\n")
     .map(l => l.trim())
     .filter(l => l.length > 2);
 
-  let address = [];
+  let addressLines = [];
   let pincode = "";
   let phone = "";
-  let email = "";
   let landmark = "";
+
+  let started = false;
 
   for (let line of lines) {
 
-    // 📍 PINCODE
+    // ❌ STOP when "Nearby / Branch list starts"
+    if (
+      line.toLowerCase().includes("pnb branches") ||
+      line.toLowerCase().includes("branches in") ||
+      line.toLowerCase().includes("other branches")
+    ) {
+      break;
+    }
+
+    // 📍 START address block
+    if (
+      line.toLowerCase().includes("floor") ||
+      line.toLowerCase().includes("road")
+    ) {
+      started = true;
+    }
+
+    if (!started) continue;
+
+    // 📍 PINCODE → stop after found (end of address)
     const pin = line.match(/\b\d{6}\b/);
     if (pin) {
       pincode = pin[0];
-      address.push(line);
-      continue;
+      addressLines.push(line);
+      break; // ✅ STOP HERE (IMPORTANT)
     }
 
     // 📞 PHONE
     if (line.match(/\+91\d+/) || line.includes("1800")) {
       phone = line;
-      continue;
-    }
-
-    // 📧 EMAIL
-    if (line.includes("[at]")) {
-      email = line;
-      continue;
     }
 
     // 📌 LANDMARK
     if (line.toLowerCase().includes("near") || line.toLowerCase().includes("above")) {
       landmark = line;
-      continue;
     }
 
-    // 📍 ADDRESS (smart filter)
-    if (
-      line.toLowerCase().includes("road") ||
-      line.toLowerCase().includes("floor") ||
-      line.toLowerCase().includes("west bengal") ||
-      line.toLowerCase().includes("alipurduar") ||
-      line.toLowerCase().includes("jaygaon")
-    ) {
-      address.push(line);
-    }
+    addressLines.push(line);
   }
 
   return {
     name,
     lat,
     lng,
-    address: address.join(", "),
+    address: addressLines.join(", "),
     pincode,
     phone,
-    email,
     landmark
   };
 });
+    
     
     
     if (data.lat && data.lng) {
