@@ -8,7 +8,7 @@ const zlib = require("zlib");
 // ===============================
 async function getSitemapLinks() {
   const res = await axios.get("https://locate.pnb.bank.in/sitemap.xml");
-  return (res.data.match(/https:[^<]+\.xml\.gz/g) || []).slice(0, 3);
+  return (res.data.match(/https:[^<]+\.xml\.gz/g) || []).slice(0, 20);
 }
 
 // ===============================
@@ -208,7 +208,7 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   console.log("🔄 Collecting URLs...");
   const urls = await collectAllATMUrls();
 
-  console.log("Total:", urls.length);
+  console.log("Total URLs:", urls.length);
 
   const browser = await puppeteer.launch({
     headless: "new",
@@ -217,22 +217,63 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 
   const page = await browser.newPage();
 
+  // ✅ Load previous data (resume support)
   let results = [];
+  try {
+    results = JSON.parse(fs.readFileSync("atms.json"));
+  } catch {}
 
-  for (let url of urls.slice(0, 10)) {
-    console.log("Scraping:", url);
+  const scrapedUrls = new Set(results.map(r => r.url));
 
-    const data = await scrapePage(page, url);
+  const batchSize = 20;
 
-    if (data) results.push(data);
+  for (let i = 0; i < urls.length; i += batchSize) {
 
-    await new Promise(r => setTimeout(r, 3000));
+    const batch = urls.slice(i, i + batchSize);
+
+    for (let url of batch) {
+
+      if (scrapedUrls.has(url)) {
+        console.log("⏭ Skipping:", url);
+        continue;
+      }
+
+      console.log("Scraping:", url);
+
+      const data = await scrapePage(page, url);
+
+      if (data) {
+        results.push(data);
+        scrapedUrls.add(url);
+      }
+
+      await new Promise(r => setTimeout(r, 1500));
+    }
+
+    console.log("💾 Saving progress...");
+    fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
+
+    await new Promise(r => setTimeout(r, 5000));
   }
 
   await browser.close();
 
+  // ✅ Keep only ATM
+  results = results.filter(r =>
+    r.name.toLowerCase().includes("atm")
+  );
+
+  // ✅ Remove duplicates
+  const unique = new Map();
+  results.forEach(r => {
+    const key = `${r.lat}_${r.lng}`;
+    unique.set(key, r);
+  });
+
+  results = [...unique.values()];
+
   fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
 
-  console.log("✅ Done:", results.length);
+  console.log("✅ FINAL ATMs:", results.length);
 
 })();
