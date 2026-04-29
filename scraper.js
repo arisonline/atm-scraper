@@ -208,6 +208,14 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   console.log("🔄 Collecting URLs...");
   const urls = await collectAllATMUrls();
 
+
+    // 🔥 LIMIT PER RUN (IMPORTANT)
+  const MAX_URLS = 100;
+  
+  const urlsToScrape = urls
+    .filter(u => !scrapedUrls.has(u))
+    .slice(0, MAX_URLS);
+
   console.log("Total URLs:", urls.length);
 
   const browser = await puppeteer.launch({
@@ -227,9 +235,9 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 
   const batchSize = 20;
 
-  for (let i = 0; i < urls.length; i += batchSize) {
+  for (let i = 0; i < urlsToScrape.length; i += batchSize) {
 
-    const batch = urls.slice(i, i + batchSize);
+    const batch = urlsToScrape.slice(i, i + batchSize);
 
     for (let url of batch) {
 
