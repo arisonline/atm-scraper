@@ -209,7 +209,16 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   const urls = await collectAllATMUrls();
 
 
-    // 🔥 LIMIT PER RUN (IMPORTANT)
+  // ✅ Load previous data (resume support)
+  let results = [];
+  try {
+    results = JSON.parse(fs.readFileSync("atms.json"));
+  } catch {}
+
+  const scrapedUrls = new Set(results.map(r => r.url));
+
+
+  // 🔥 LIMIT PER RUN (IMPORTANT)
   const MAX_URLS = 100;
   
   const urlsToScrape = urls
@@ -225,13 +234,6 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 
   const page = await browser.newPage();
 
-  // ✅ Load previous data (resume support)
-  let results = [];
-  try {
-    results = JSON.parse(fs.readFileSync("atms.json"));
-  } catch {}
-
-  const scrapedUrls = new Set(results.map(r => r.url));
 
   const batchSize = 20;
 
