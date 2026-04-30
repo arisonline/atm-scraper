@@ -8,7 +8,8 @@ const zlib = require("zlib");
 // ===============================
 async function getSitemapLinks() {
   const res = await axios.get("https://locate.pnb.bank.in/sitemap.xml");
-  return (res.data.match(/https:[^<]+\.xml\.gz/g) || []).slice(0, 20);
+  // remove slice completely
+  return res.data.match(/https:[^<]+\.xml\.gz/g) || [];
 }
 
 // ===============================
@@ -31,6 +32,8 @@ async function getATMUrlsFromGZ(url) {
 // ===============================
 async function collectAllATMUrls() {
   const maps = await getSitemapLinks();
+
+  console.log("🧭 Sitemaps found:", maps.length); // ✅ ADD HERE
 
   let all = [];
   for (let m of maps) {
@@ -208,6 +211,8 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   console.log("🔄 Collecting URLs...");
   const urls = await collectAllATMUrls();
 
+  console.log("📦 Collected ATM URLs:", urls.length); // ✅ ADD HERE
+
 
   // ✅ Load previous data (resume support)
   let results = [];
@@ -219,11 +224,13 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 
 
   // 🔥 LIMIT PER RUN (IMPORTANT)
-  const MAX_URLS = 100;
+  const MAX_URLS = 300;
   
   const urlsToScrape = urls
     .filter(u => !scrapedUrls.has(u))
     .slice(0, MAX_URLS);
+
+  console.log("🆕 New URLs to scrape:", urlsToScrape.length); // ✅ ADD HERE
 
   console.log("Total URLs:", urls.length);
 
@@ -232,39 +239,34 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
     args: ["--no-sandbox"]
   });
 
-  const page = await browser.newPage();
+  const pages = await Promise.all(
+    Array.from({ length: 5 }).map(() => browser.newPage())
+  );
 
 
   const batchSize = 20;
 
-  for (let i = 0; i < urlsToScrape.length; i += batchSize) {
+  for (let i = 0; i < urlsToScrape.length; i++) {
+  const page = pages[i % pages.length];
+  const url = urlsToScrape[i];
 
-    const batch = urlsToScrape.slice(i, i + batchSize);
+  console.log("Scraping:", url);
 
-    for (let url of batch) {
+  const data = await scrapePage(page, url);
 
-      if (scrapedUrls.has(url)) {
-        console.log("⏭ Skipping:", url);
-        continue;
-      }
+  if (data) {
+    results.push(data);
+    scrapedUrls.add(url);
+  }
 
-      console.log("Scraping:", url);
-
-      const data = await scrapePage(page, url);
-
-      if (data) {
-        results.push(data);
-        scrapedUrls.add(url);
-      }
-
-      await new Promise(r => setTimeout(r, 1500));
-    }
+  await new Promise(r => setTimeout(r, 800));
+}
 
     console.log("💾 Saving progress...");
     fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
 
     await new Promise(r => setTimeout(r, 5000));
-  }
+  
 
   await browser.close();
 
