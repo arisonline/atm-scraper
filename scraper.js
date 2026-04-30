@@ -37,9 +37,13 @@ async function collectAllATMUrls() {
 
   let all = [];
   for (let m of maps) {
+  try {
     const urls = await getATMUrlsFromGZ(m);
     all.push(...urls);
+  } catch (e) {
+    console.log("❌ Sitemap failed:", m);
   }
+}
 
   return [...new Set(all)];
 }
@@ -192,12 +196,13 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
         ...data,
         lat: parseFloat(data.lat),
         lng: parseFloat(data.lng),
-        url
+        url,
+        updatedAt: Date.now() // ✅ ADD
       };
     }
 
   } catch (e) {
-    console.log("❌ Error:", url);
+    console.log("❌ Error:", url, e.message);
   }
 
   return null;
@@ -220,15 +225,30 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
     results = JSON.parse(fs.readFileSync("atms.json"));
   } catch {}
 
-  const scrapedUrls = new Set(results.map(r => r.url));
+  const resultsMap = new Map(results.map(r => [r.url, r]));
+
+  
 
 
   // 🔥 LIMIT PER RUN (IMPORTANT)
   const MAX_URLS = 300;
   
-  const urlsToScrape = urls
-    .filter(u => !scrapedUrls.has(u))
-    .slice(0, MAX_URLS);
+  // ⏳ Refresh after 30 days
+  const THIRTY_DAYS = 1000 * 60 * 60 * 24 * 30;
+  
+  const urlsToScrape = urls.filter(u => {
+    const existing = resultsMap.get(u);
+  
+    // ✅ New URL → scrape
+    if (!existing) return true;
+  
+    // ✅ Old URL → check last update time
+    return (Date.now() - (existing.updatedAt || 0)) > THIRTY_DAYS;
+  
+  }).slice(0, MAX_URLS);
+
+
+  
 
   console.log("🆕 New URLs to scrape:", urlsToScrape.length); // ✅ ADD HERE
 
@@ -244,7 +264,7 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   );
 
 
-  const batchSize = 20;
+  
 
   for (let i = 0; i < urlsToScrape.length; i++) {
   const page = pages[i % pages.length];
@@ -255,12 +275,14 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   const data = await scrapePage(page, url);
 
   if (data) {
-    results.push(data);
-    scrapedUrls.add(url);
+    resultsMap.set(url, data); // ✅ add or update
   }
 
   await new Promise(r => setTimeout(r, 800));
 }
+
+
+    results = Array.from(resultsMap.values());
 
     console.log("💾 Saving progress...");
     fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
@@ -272,17 +294,10 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 
   // ✅ Keep only ATM
   results = results.filter(r =>
-    r.name.toLowerCase().includes("atm")
+    (r.name || "").toLowerCase().includes("atm")
   );
 
-  // ✅ Remove duplicates
-  const unique = new Map();
-  results.forEach(r => {
-    const key = `${r.lat}_${r.lng}`;
-    unique.set(key, r);
-  });
 
-  results = [...unique.values()];
 
   fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
 
