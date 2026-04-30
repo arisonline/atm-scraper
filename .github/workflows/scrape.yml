@@ -11,6 +11,7 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 360   # ✅ ADD HERE
 
     steps:
       - uses: actions/checkout@v4
