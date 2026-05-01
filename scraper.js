@@ -23,6 +23,7 @@ async function getATMUrlsFromGZ(url) {
 
   return urls.filter(u =>
     u.includes("punjab-national-bank") &&
+    (u.includes("-atm-") || u.includes("-bna-")) &&
     u.endsWith("/Home")
   );
 }
@@ -55,7 +56,7 @@ async function scrapePage(page, url) {
   try {
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-    await new Promise(r => setTimeout(r, 2500));
+    await new Promise(r => setTimeout(r, 1500));
 
     const data = await page.evaluate(() => {
 
@@ -266,9 +267,11 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
     args: ["--no-sandbox"]
   });
 
-  const pages = await Promise.all(
-    Array.from({ length: 5 }).map(() => browser.newPage())
-  );
+const WORKERS = 10;
+
+const pages = await Promise.all(
+  Array.from({ length: WORKERS }).map(() => browser.newPage())
+);
 
 
   
