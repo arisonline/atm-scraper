@@ -23,6 +23,7 @@ async function getATMUrlsFromGZ(url) {
 
   return urls.filter(u =>
     u.includes("punjab-national-bank") &&
+    u.includes("-atm-") &&
     u.endsWith("/Home")
   );
 }
@@ -241,9 +242,9 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   
     // ✅ New URL → scrape
     if (!existing) return true;
-  
-    // ✅ Old URL → check last update time
-    return (Date.now() - (existing.updatedAt || 0)) > THIRTY_DAYS;
+    
+    // refresh 10% of old data
+    return Math.random() < 0.1;
   
   }).slice(0, MAX_URLS);
 
