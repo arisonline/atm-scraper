@@ -23,7 +23,6 @@ async function getATMUrlsFromGZ(url) {
 
   return urls.filter(u =>
     u.includes("punjab-national-bank") &&
-    u.includes("-atm-") &&
     u.endsWith("/Home")
   );
 }
@@ -221,12 +220,19 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 
 
   // ✅ Load previous data (resume support)
-  let results = [];
+  let atmResults = [];
+  let bnaResults = [];
+  
   try {
-    results = JSON.parse(fs.readFileSync("atms.json"));
+    atmResults = JSON.parse(fs.readFileSync("atms.json"));
   } catch {}
-
-  const resultsMap = new Map(results.map(r => [r.url, r]));
+  
+  try {
+    bnaResults = JSON.parse(fs.readFileSync("bna.json"));
+  } catch {}
+  
+  const atmMap = new Map(atmResults.map(r => [r.url, r]));
+  const bnaMap = new Map(bnaResults.map(r => [r.url, r]));
 
   
 
@@ -238,7 +244,7 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   const THIRTY_DAYS = 1000 * 60 * 60 * 24 * 30;
   
   const urlsToScrape = urls.filter(u => {
-    const existing = resultsMap.get(u);
+    const existing = atmMap.get(u) || bnaMap.get(u);
   
     // ✅ New URL → scrape
     if (!existing) return true;
@@ -276,32 +282,42 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   const data = await scrapePage(page, url);
 
   if (data) {
-    resultsMap.set(url, data); // ✅ add or update
+    const name = (data.name || "").toLowerCase();
+  
+    if (name.includes("punjab national bank - atm")) {
+      atmMap.set(url, data);
+    } else if (name.includes("punjab national bank - bna")) {
+      bnaMap.set(url, data);
+    }
   }
 
-  await new Promise(r => setTimeout(r, 800));
+  await new Promise(r => setTimeout(r, 400));
 }
 
 
-    results = Array.from(resultsMap.values());
 
     console.log("💾 Saving progress...");
-    fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
+
 
     await new Promise(r => setTimeout(r, 5000));
   
 
   await browser.close();
 
-  // ✅ Keep only ATM
-  results = results.filter(r =>
-    (r.name || "").toLowerCase().includes("atm")
+  
+
+
+    fs.writeFileSync(
+    "atms.json",
+    JSON.stringify(Array.from(atmMap.values()), null, 2)
+  );
+  
+  fs.writeFileSync(
+    "bna.json",
+    JSON.stringify(Array.from(bnaMap.values()), null, 2)
   );
 
-
-
-  fs.writeFileSync("atms.json", JSON.stringify(results, null, 2));
-
-  console.log("✅ FINAL ATMs:", results.length);
+  console.log("✅ FINAL ATMs:", atmMap.size);
+  console.log("✅ FINAL BNA:", bnaMap.size);
 
 })();
