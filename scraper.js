@@ -31,22 +31,31 @@ async function getATMUrlsFromGZ(url) {
 // ===============================
 // STEP 3: Collect all URLs
 // ===============================
-async function collectAllATMUrls() {
+async function collectAllATMUrls(processedSitemaps, seenUrls) {
   const maps = await getSitemapLinks();
 
-  console.log("🧭 Sitemaps found:", maps.length); // ✅ ADD HERE
+  console.log("🧭 Sitemaps found:", maps.length);
 
-  let all = [];
   for (let m of maps) {
-  try {
-    const urls = await getATMUrlsFromGZ(m);
-    all.push(...urls);
-  } catch (e) {
-    console.log("❌ Sitemap failed:", m);
-  }
-}
 
-  return [...new Set(all)];
+    // ⏭ Skip already processed sitemap
+    if (processedSitemaps.has(m)) continue;
+
+    try {
+      console.log("🆕 New sitemap:", m);
+
+      const urls = await getATMUrlsFromGZ(m);
+
+      urls.forEach(u => seenUrls.add(u));
+
+      processedSitemaps.add(m);
+
+    } catch (e) {
+      console.log("❌ Sitemap failed:", m);
+    }
+  }
+
+  return Array.from(seenUrls);
 }
 
 // ===============================
@@ -228,8 +237,21 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 // ===============================
 (async () => {
 
+
+  // 🧠 Load cache (ADD HERE)
+  let processedSitemaps = new Set();
+  let seenUrls = new Set();
+  
+  try {
+    processedSitemaps = new Set(JSON.parse(fs.readFileSync("processed_sitemaps.json")));
+  } catch {}
+  
+  try {
+    seenUrls = new Set(JSON.parse(fs.readFileSync("seen_urls.json")));
+  } catch {}
+
   console.log("🔄 Collecting URLs...");
-  const urls = await collectAllATMUrls();
+  const urls = await collectAllATMUrls(processedSitemaps, seenUrls);
 
   console.log("📦 Collected ATM URLs:", urls.length); // ✅ ADD HERE
 
@@ -339,23 +361,42 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
     console.log("💾 Saving progress...");
 
 
+
+
     await new Promise(r => setTimeout(r, 5000));
   
 
   await browser.close();
 
-  
 
 
-    fs.writeFileSync(
-    "atms.json",
-    JSON.stringify(Array.from(atmMap.values()), null, 2)
-  );
+
+      fs.writeFileSync(
+        "atms.json",
+        JSON.stringify(Array.from(atmMap.values()), null, 2)
+      );
+      
+      fs.writeFileSync(
+        "bna.json",
+        JSON.stringify(Array.from(bnaMap.values()), null, 2)
+      );
+    
+    
+      
+
+        // 💾 Save cache (ADD HERE)
+        fs.writeFileSync(
+          "processed_sitemaps.json",
+          JSON.stringify(Array.from(processedSitemaps), null, 2)
+        );
+        
+        fs.writeFileSync(
+          "seen_urls.json",
+          JSON.stringify(Array.from(seenUrls), null, 2)
+        );
+
+
   
-  fs.writeFileSync(
-    "bna.json",
-    JSON.stringify(Array.from(bnaMap.values()), null, 2)
-  );
 
   console.log("✅ FINAL ATMs:", atmMap.size);
   console.log("✅ FINAL BNA:", bnaMap.size);
