@@ -54,9 +54,23 @@ async function collectAllATMUrls() {
 // ===============================
 async function scrapePage(page, url) {
   try {
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 45000
+    });
 
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 800));
+
+
+    // 🚀 Skip non ATM/BNA pages early (VERY IMPORTANT)
+    const title = await page.title();
+    
+    if (
+      !title.toLowerCase().includes("atm") &&
+      !title.toLowerCase().includes("bna")
+    ) {
+      return null;
+    }
 
     const data = await page.evaluate(() => {
 
@@ -260,18 +274,41 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 
   console.log("🆕 New URLs to scrape:", urlsToScrape.length); // ✅ ADD HERE
 
+
+  // 🚀 Exit early if nothing to scrape
+  if (urlsToScrape.length === 0) {
+    console.log("✅ No new URLs. Exiting early.");
+    return;
+  }
+
   console.log("Total URLs:", urls.length);
 
   const browser = await puppeteer.launch({
     headless: "new",
     args: ["--no-sandbox"]
   });
-
-const WORKERS = 10;
-
-const pages = await Promise.all(
-  Array.from({ length: WORKERS }).map(() => browser.newPage())
-);
+  
+  const WORKERS = 10;
+  
+  const pages = await Promise.all(
+    Array.from({ length: WORKERS }).map(async () => {
+      const p = await browser.newPage();
+  
+      // 🚀 Block heavy resources (VERY IMPORTANT)
+      await p.setRequestInterception(true);
+      p.on("request", req => {
+        const type = req.resourceType();
+  
+        if (["image", "stylesheet", "font", "media"].includes(type)) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+  
+      return p;
+    })
+  );
 
 
   
