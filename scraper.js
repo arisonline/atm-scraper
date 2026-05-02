@@ -32,7 +32,7 @@ async function getATMUrlsFromGZ(url) {
 // STEP 3: Collect all URLs
 // ===============================
 async function collectAllATMUrls(processedSitemaps, seenUrls) {
-  const maps = await getSitemapLinks();
+  const maps = (await getSitemapLinks()).slice(-50);
 
   console.log("🧭 Sitemaps found:", maps.length);
 
@@ -237,25 +237,6 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
 // ===============================
 (async () => {
 
-
-  // 🧠 Load cache (ADD HERE)
-  let processedSitemaps = new Set();
-  let seenUrls = new Set();
-  
-  try {
-    processedSitemaps = new Set(JSON.parse(fs.readFileSync("processed_sitemaps.json")));
-  } catch {}
-  
-  try {
-    seenUrls = new Set(JSON.parse(fs.readFileSync("seen_urls.json")));
-  } catch {}
-
-  console.log("🔄 Collecting URLs...");
-  const urls = await collectAllATMUrls(processedSitemaps, seenUrls);
-
-  console.log("📦 Collected ATM URLs:", urls.length); // ✅ ADD HERE
-
-
   // ✅ Load previous data (resume support)
   let atmResults = [];
   let bnaResults = [];
@@ -271,6 +252,42 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   const atmMap = new Map(atmResults.map(r => [r.url, r]));
   const bnaMap = new Map(bnaResults.map(r => [r.url, r]));
 
+
+    // 🧠 Load cache (ADD HERE)
+  let processedSitemaps = new Set();
+  let seenUrls = new Set();
+  
+  try {
+    processedSitemaps = new Set(JSON.parse(fs.readFileSync("processed_sitemaps.json")));
+  } catch {}
+  
+  try {
+    seenUrls = new Set(JSON.parse(fs.readFileSync("seen_urls.json")));
+  } catch {}
+
+
+  // 🧠 Prefill seenUrls from existing data (ONLY FIRST TIME)
+  if (seenUrls.size === 0 && (atmResults.length || bnaResults.length)) {
+    console.log("⚡ Prefilling seen_urls from existing JSON...");
+  
+    const all = [...atmResults, ...bnaResults];
+    const urls = all.map(r => r.url).filter(Boolean);
+  
+    seenUrls = new Set(urls);
+  
+    fs.writeFileSync(
+      "seen_urls.json",
+      JSON.stringify(Array.from(seenUrls), null, 2)
+    );
+  
+    console.log("✅ Prefilled URLs:", seenUrls.size);
+  }
+
+  console.log("🔄 Collecting URLs...");
+  const urls = await collectAllATMUrls(processedSitemaps, seenUrls);
+
+  console.log("📦 Collected ATM URLs:", urls.length); // ✅ ADD HERE
+
   
 
 
@@ -280,15 +297,20 @@ if (phone.startsWith("91") && !phone.startsWith("+91")) {
   // ⏳ Refresh after 30 days
   const THIRTY_DAYS = 1000 * 60 * 60 * 24 * 30;
   
-  const urlsToScrape = urls.filter(u => {
+  // 🚀 Step 1: only new URLs (BIG SPEED BOOST)
+  const newUrls = urls.filter(u => {
+    return !atmMap.has(u) && !bnaMap.has(u);
+  });
+  
+  console.log("🆕 Truly new URLs:", newUrls.length);
+  
+  // 🚀 Step 2: apply existing logic only on new URLs
+  const urlsToScrape = newUrls.filter(u => {
     const existing = atmMap.get(u) || bnaMap.get(u);
   
-    // ✅ New URL → scrape
     if (!existing) return true;
-    
-    // refresh 10% of old data
-    return Math.random() < 0.1;
   
+    return Math.random() < 0.1;
   }).slice(0, MAX_URLS);
 
 
