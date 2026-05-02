@@ -32,7 +32,7 @@ async function getATMUrlsFromGZ(url) {
 // STEP 3: Collect all URLs
 // ===============================
 async function collectAllATMUrls(processedSitemaps, seenUrls) {
-  const maps = (await getSitemapLinks()).slice(-50);
+  const maps = (await getSitemapLinks()).slice(-25);
 
   console.log("🧭 Sitemaps found:", maps.length);
 
@@ -45,9 +45,19 @@ async function collectAllATMUrls(processedSitemaps, seenUrls) {
       console.log("🆕 New sitemap:", m);
 
       const urls = await getATMUrlsFromGZ(m);
-
-      urls.forEach(u => seenUrls.add(u));
-
+      
+      // 🔥 Skip if all already known
+      const fresh = urls.filter(u => !seenUrls.has(u));
+      
+      if (fresh.length === 0) {
+        console.log("⏭ Skipping sitemap (no new URLs)");
+        processedSitemaps.add(m);
+        continue;
+      }
+      
+      // ✅ Only add NEW URLs
+      fresh.forEach(u => seenUrls.add(u));
+      
       processedSitemaps.add(m);
 
     } catch (e) {
